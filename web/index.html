@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Invite Demo</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+  <p><a href="http://localhost:4000/api/pdf/TOKEN_AQUI">Descargar PDF</a></p>
+  <div class="card">
+    <h2>Generar acceso</h2>
+
+    <label for="username">Username</label>
+    <input 
+      id="username" 
+      name="username"
+      type="text"
+      placeholder="ej: rene.rivas"
+      autocomplete="off"
+    >
+
+    <label for="domain">Dominio</label>
+    <select id="domain" name="domain">
+      <option value="privmail.example">privmail.example</option>
+      <option value="alias.example">alias.example</option>
+      <option value="secure.example">secure.example</option>
+    </select>
+
+    <button id="generateBtn" type="button">Generar enlace</button>
+
+    <div id="msg" class="msg"></div>
+    <div id="result"></div>
+  </div>
+
+<script>
+  const btn = document.getElementById("generateBtn");
+  const usernameInput = document.getElementById("username");
+  const domainSelect = document.getElementById("domain");
+  const resultDiv = document.getElementById("result");
+  const msgDiv = document.getElementById("msg");
+
+  function setMsg(text, type="") {
+    msgDiv.textContent = text;
+    msgDiv.className = "msg " + type;
+  }
+
+  function normalizeUsername(u) {
+    return String(u || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]/g, "");
+  }
+
+  btn.addEventListener("click", create);
+
+  async function create() {
+    setMsg("");
+    resultDiv.innerHTML = "";
+
+    const username = normalizeUsername(usernameInput.value);
+    const domain = domainSelect.value;
+
+    if (!username || username.length < 3) {
+      setMsg("Username inválido (mínimo 3 caracteres)", "bad");
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = "Generando...";
+
+    try {
+      const r = await fetch("/api/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, domain })
+      });
+
+      const data = await r.json().catch(() => ({}));
+
+      if (!r.ok) {
+        setMsg(data.error || "Error generando enlace", "bad");
+        btn.disabled = false;
+        btn.textContent = "Generar enlace";
+        return;
+      }
+
+      setMsg("Enlace generado ✅", "ok");
+
+      // ✅ Sin innerHTML inseguro
+      const box = document.createElement("div");
+      box.className = "box";
+
+      const link = document.createElement("a");
+      link.href = data.link;
+      link.textContent = data.link;
+      link.target = "_blank";
+      link.rel = "noreferrer";
+
+      const copyBtn = document.createElement("button");
+      copyBtn.type = "button";
+      copyBtn.className = "secondary";
+      copyBtn.textContent = "Copiar";
+      copyBtn.onclick = async () => {
+        await navigator.clipboard.writeText(data.link);
+        setMsg("Copiado ✅", "ok");
+        setTimeout(() => setMsg(""), 1500);
+      };
+
+      const row = document.createElement("div");
+      row.className = "row";
+      row.appendChild(link);
+      row.appendChild(copyBtn);
+
+      box.appendChild(row);
+
+      if (data.expiresAt) {
+        const exp = document.createElement("small");
+        exp.textContent = "Expira: " + new Date(data.expiresAt).toLocaleString();
+        box.appendChild(exp);
+      }
+
+      resultDiv.appendChild(box);
+
+    } catch (e) {
+      setMsg("Error de red (¿API encendida?)", "bad");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Generar enlace";
+    }
+  }
+</script>
+
+</body>
+</html>

@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Invite Demo</title>
+
+  <style>
+    :root { font-family: system-ui, Arial, sans-serif; }
+    body { background:#fafafa; margin:0; padding:40px 16px; }
+    .card{
+      width:min(560px,100%);
+      margin:0 auto;
+      background:#fff;
+      border:1px solid #eee;
+      border-radius:14px;
+      padding:18px;
+      box-shadow:0 8px 30px rgba(0,0,0,.06);
+    }
+    h2 { margin: 0 0 14px; }
+    .box{ margin-top:12px; padding:12px; border-radius:12px; border:1px solid #eee; background:#fff; }
+    .row{ display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap; }
+    .badge{
+      display:inline-flex;
+      justify-content:center;
+      padding:4px 10px;
+      border-radius:999px;
+      font-size:12px;
+      border:1px solid #ddd;
+      background:#eaffea;
+    }
+    .badge.warn{ background:#fff7d6; }
+    .badge.exp{ background:#ffe6e6; }
+    button{
+      padding:10px 12px;
+      border-radius:10px;
+      border:none;
+      cursor:pointer;
+      background:#111;
+      color:#fff;
+    }
+    button.secondary{
+      background:#f1f1f1;
+      color:#111;
+      border:1px solid #ddd;
+    }
+    button:disabled{ opacity:.6; cursor:not-allowed; }
+    small{ color:#666; display:block; margin-top:6px; }
+    .bad{ color:#b00020; font-weight:700; }
+    .ok{ color:#0a7a0a; font-weight:700; }
+    a{ word-break: break-all; }
+  </style>
+</head>
+
+<body>
+  <div class="card">
+    <h2>Bienvenido</h2>
+
+    <div id="status" class="box">Cargando...</div>
+
+    <div id="actions" class="box" style="display:none">
+      <div class="row">
+        <span id="countdown" class="badge">--:--</span>
+
+        <button id="redeemBtn" type="button">Canjear acceso</button>
+        <button id="pdfBtn" type="button" class="secondary">Abrir PDF</button>
+      </div>
+      <small id="hint"></small>
+    </div>
+  </div>
+
+<script>
+  // ✅ Si tu API corre en 4000:
+  const API_BASE = "http://localhost:4000";
+
+  function getTokenFromHash() {
+    // URL: welcome.html#token=XXXX
+    const h = window.location.hash || "";
+    const m = h.match(/token=([a-f0-9]+)/i);
+    return m ? m[1] : "";
+  }
+
+  function formatCountdown(ms) {
+    if (ms <= 0) return "Expirado";
+    const m = Math.floor(ms / 60000);
+    const s = Math.floor((ms % 60000) / 1000);
+    return `${m}:${String(s).padStart(2, "0")}`;
+  }
+
+  const $status = document.getElementById("status");
+  const $actions = document.getElementById("actions");
+  const $countdown = document.getElementById("countdown");
+  const $redeemBtn = document.getElementById("redeemBtn");
+  const $pdfBtn = document.getElementById("pdfBtn");
+  const $hint = document.getElementById("hint");
+
+  const token = getTokenFromHash();
+  let expiresAt = 0;
+  let timer = null;
+
+  function setStatus(html) {
+    $status.innerHTML = html;
+  }
+
+  function setBadge(msLeft) {
+    $countdown.textContent = formatCountdown(msLeft);
+
+    $countdown.classList.remove("warn","exp");
+    if (msLeft <= 0) $countdown.classList.add("exp");
+    else if (msLeft < 60_000) $countdown.classList.add("warn");
+  }
+
+  async function loadSession() {
+    if (!token) {
+      setStatus(`<div class="bad">Link inválido</div><small>Falta #token=...</small>`);
+      return;
+    }
+
+    const r = await fetch(`${API_BASE}/api/session/${token}`);
+    const data = await r.json().catch(() => ({}));
+
+    if (!r.ok) {
+      setStatus(`<div class="bad">Token inválido</div><small>${data.error || "No válido o expirado"}</small>`);
+      return;
+    }
+
+    expiresAt = data.expiresAt;
+
+    setStatus(`
+      <div class="ok">Acceso válido ✅</div>
+      <small><b>Email:</b> ${data.username}@${data.domain}</small>
+      <small><b>Alt:</b> ${data.username}@${data.alt}</small>
+      <small><b>Expira:</b> ${new Date(expiresAt).toLocaleString()}</small>
+    `);
+
+    $actions.style.display = "block";
+    $hint.textContent = "Este enlace expira y se puede canjear una sola vez.";
+
+    // countdown
+    if (timer) clearInterval(timer);
+    timer = setInterval(() => {
+      const msLeft = expiresAt - Date.now();
+      setBadge(msLeft);
+
+      const expired = msLeft <= 0;
+      $redeemBtn.disabled = expired;
+      $pdfBtn.disabled = expired;
+    }, 250);
+  }
+
+  $redeemBtn.addEventListener("click", async () => {
+    $redeemBtn.disabled = true;
+    $redeemBtn.textContent = "Canjeando...";
+
+    try {
+      const r = await fetch(`${API_BASE}/api/redeem/${token}`, { method: "POST" });
+      const data = await r.json().catch(() => ({}));
+
+      if (!r.ok) {
+        alert(`No se pudo canjear: ${data.error || "ERROR"}`);
+        $redeemBtn.disabled = false;
+        $redeemBtn.textContent = "Canjear acceso";
+        return;
+      }
+
+      alert(`Acceso OK: ${data.user.email}`);
+      $redeemBtn.textContent = "Canjeado ✅";
+      $pdfBtn.disabled = true; // opcional: bloquear PDF tras canjear
+    } catch {
+      alert("Error de red");
+      $redeemBtn.disabled = false;
+      $redeemBtn.textContent = "Canjear acceso";
+    }
+  });
+
+  $pdfBtn.addEventListener("click", () => {
+    // abre el PDF generado por el backend
+    window.open(`${API_BASE}/api/pdf/${token}`, "_blank", "noreferrer");
+  });
+
+  loadSession();
+</script>
+
+</body>
+</html>
